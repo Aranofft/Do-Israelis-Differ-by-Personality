@@ -1,0 +1,921 @@
+---
+title: "Do Israelis Differ by Personality?"
+author: "Tamar Aranoff"
+output:
+  html_document:
+    df_print: paged
+---
+
+![](image3.jpg)
+
+# Abstract
+
+The Israeli identity has been a great interest around the world. Numerous assumptions are routinely made about the typical Israeli personality, by either curious residents around the world or by Israelis themselves, trying to recognize an Israeli while taking global tours. Therefore, this interest raises the inevitable question, can Israelis be identified by their personality? Do Israelis have significant personality traits that differentiates them from the crowd? The following project was conducted in search for a statistical answer by trying to predict Israeli personality using a dataset of 50 Likert-scale answers related to the big five personality traits.
+
+# Introduction
+
+One of Shaul Tchernichovsky's most famous lines states: "Man is but the imprint of his native landscape". Accordingly, it is believed that citizens of a country may have similar personality traits that differentiate them from other country residents. This belief may be particularly interesting with regards to Israelis, whose identity has been a great interest around the world. Numerous assumptions have been made about the typical Israeli personality, by either curious resident around the world or by Israelis themselves, trying to recognize an Israeli while taking global tours. The inconclusiveness of such assumptions may be due to the very fact that personalities are undefinable and that every human being is unique and can't be categorized in a large scale. However, the raised patterns by the media or by life experience questions the validity of that statement and raises the need for a scientific way to check if Israelis can be after all recognized by their personality.
+
+Different approaches are held today in order to assess someone's personality. This project is based on the Big Five Personality trait assessment which is one of the well-known used approaches. The Big Five personality traits are a suggested grouping for personality traits developed in 1949 by D. W. Fiske (1949). The big five come from the statistical study of responses to personality items. Using a technique called factor analysis researchers can look at the responses of people to hundreds of personality items and ask the question "what is the best one to summarize an individual?". This has been done with many samples from all over the world and the general result is that, while there seem to be unlimited personality variables, five stand out from the pack in terms of explaining a lot of a persons answers to questions about their personality.
+
+The big five traits are:
+
+1.  Extraversion (outgoing/energetic vs. solitary/reserved)-
+    Characterized by breadth of activities, energy from external
+    activity/situations, and energy creation from external means.
+2.  Agreeableness (friendly/compassionate vs. critical/rational)-
+    The agreeableness trait reflects individual differences in general concern for
+    social harmony. Agreeable individuals value getting along with others.
+3.  Openness to experience (inventive/curious vs.
+    consistent/cautious)- A general appreciation for art, emotion, adventure,
+    unusual ideas, imagination, curiosity, and variety of experience.
+4.  Conscientiousness (efficient/organized vs.
+    extravagant/careless)- A tendency to display self-discipline, act dutifully,
+    and strive for achievement against measures or outside expectations.
+5.  Neuroticism (sensitive/nervous vs. resilient/confident)-
+    The tendency to experience negative emotions, such as anger,
+    anxiety, or depression.
+
+# Research Aim
+
+The aim of the project is to figure out if Israelis can be identified by their personality. This project will try to answer this question by developing a binary classification model to identify Israelis based on a Likert-scale big five test sampled from residents around the world. The accuracy of the model may reflect a scientific way for assessing if someone is an Israeli. A good accuracy model may imply that Israelis can be identified by their personality traits and the variables that have significant impact on the model might reveal the traits that differentiate Israelis from others. In contrary, a low accuracy model may strengthen the suspicion that this kind of identifications is baseless.
+
+# Data
+
+The data contains 1,015,342 samples to the big five personality test from participant around the world. The data contains 110 columns. Fifty of which are five point scale answers to statements which needed to be rated according to how true they are in the participant point of view, where 1=Disagree, 3=Neutral and 5=Agree. In addition, the data contains some technical information about the participants, including the country origin.
+
+The description of the 50 likert-scale items are as below:
+
+```{r}
+#library("readr")
+knitr::opts_chunk$set(message = FALSE)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+features_detail_load  <- readLines("codebook.txt")
+features_detail_load   <- data.frame(gsub(pattern = "\t", replace = "- ", x = features_detail_load))
+features_detail <- data.frame(features_detail_load[c(7:57),1])
+features_detail
+```
+
+Data source: <https://openpsychometrics.org/_rawdata/> load data:
+
+# Exploratory data analysis
+
+Starting the project with loading the data and relevant packages:
+
+```{r}
+#install.packages("ellipse")
+#install.packages("dominanceanalysis")
+```
+
+```{r}
+raw_data <- read.csv("data-final.csv")
+head(raw_data)
+```
+
+We can see that there are 111 columns in the data. The only relevant columns are the 50 first ones which represent the personality test and the country column. Therefore, the rest of the columns can be removed:
+
+```{r}
+my_data <- raw_data[,-c(51:108,110:111)]
+       
+```
+
+Now the content of the dataset can be addressed. First, it's important to know what unique values are in each feature:
+
+```{r}
+find_unique_features <- data.frame(apply(my_data[,c(1:50)],2, function(x) unique(x)))
+find_unique_features
+```
+
+The following shows that each column has 1-5 values and some invalid values: 0 and NULL
+
+inspecting the country values:
+
+```{r}
+find_unique_country <- unique(my_data[,c(51)])
+find_unique_country
+```
+
+We can see that the country values contain the missing values: NA and NONE
+
+In order to count the missing values, all the missing values need to have similar labeling. Therefore, all the values which are different from the expected (1-5 integer in case of the feature columns and valid strings in case of the country column), will be replaced by NA:
+
+```{r}
+NA_my_data <- my_data
+NA_my_data[NA_my_data ==0] <- NA
+NA_my_data[NA_my_data ==c("NULL")] <- NA
+NA_my_data$country[NA_my_data$country=="NONE"] <- NA
+```
+
+Checking if all missing data are NAs:
+
+```{r}
+find_unique_features <- data.frame(apply(NA_my_data[,c(1:50)],2, function(x) unique(x)))
+find_unique_features
+```
+
+Checking also countries:
+
+```{r}
+find_unique_country <- unique(NA_my_data[,c(51)])
+find_unique_country
+```
+
+The data has successfully changed! Now, in order to know how to take care of the missing values, and more specifically, if it is o.k to remove incomplete samples, it is important to know what percentage are the incomplete samples from the whole data and how much complete data is left. Plotting the complete data against the incomplete for each country will give a good idea. Since there are many small countries, I will present only the ones with significant sample sizes.
+
+```{r}
+NA_my_data$isNA <- data.frame(apply(sapply(NA_my_data,is.na),1,sum))
+NA_my_data$isNA[NA_my_data$isNA>=1] <- 1
+
+big_countries <- names(sort(table(NA_my_data$country))[210:222])
+smaller_data <- NA_my_data[which(NA_my_data$country %in% big_countries),]
+isNA <- smaller_data$isNA
+country <- data.frame(smaller_data$country)
+countNA <- data.frame(table(cbind(country,isNA)))
+colnames(countNA) <- c("country", "isNA","Freq")
+countNA <- countNA[order(as.character(countNA$country)),]
+library(lattice)
+barchart(country~Freq,data=countNA,groups=isNA,horiz = T,cex.axis = 0.8, beside = TRUE, las = 1)
+```
+
+Seems that NAs do take a big part from each country, however, it,s seems that even without the incomplete samples, there are more than enough samples to inspect.
+
+Looking at the overall complete samples against the missing ones can help:
+
+```{r}
+overallNAs <- data.frame(table(NA_my_data$isNA))
+overallNAs <- data.frame(overallNAs$Freq)
+overallNAs <- cbind(c("complete data","NA"),overallNAs)
+colnames(overallNAs) <- c("Var","Freq")
+library(ggplot2)
+
+options("scipen"=100, "digits"=4)
+ggplot(data=overallNAs, aes(x=Var, y=Freq)) +
+  geom_bar(stat="identity", fill="steelblue")+
+  geom_text(aes(label=Freq), vjust=-0.3, size=3.5)+
+  theme_minimal()+ggtitle("Incomplete Vs Complete data") +
+  xlab("") + ylab("#samples")
+```
+
+Indeed, there are enough complete samples. Before i,ll remove the incomplete ones, I'll make sure there will be enough Israeli samples left:
+
+```{r}
+Israel <- NA_my_data[NA_my_data$country=='IL',]
+overallNAs_israel <- data.frame(table(Israel$isNA))
+overallNAs_israel <- data.frame(overallNAs_israel$Freq)
+overallNAs_israel <- cbind(c("complete data","NA"),overallNAs_israel)
+colnames(overallNAs_israel) <- c("Var","Freq")
+
+options("scipen"=100, "digits"=4)
+ggplot(data=overallNAs_israel, aes(x=Var, y=Freq)) +
+  geom_bar(stat="identity", fill="steelblue")+
+  geom_text(aes(label=Freq), vjust=-0.3, size=3.5)+
+  theme_minimal()+ggtitle("Incomplete Vs Complete data- Israel") +
+  xlab("") + ylab("#samples")
+```
+
+Yes, 1233 are enough samples for the project's purposes.
+
+Finally, the NA's are removed from the dataset:
+
+```{r}
+clean_data <- NA_my_data[-which(NA_my_data$isNA==1),] 
+dim(clean_data)
+```
+
+As expected, there are 862,710 samples left.
+
+Next, the data needs to represent well the non-Israeli and Israeli population. First lets separate Israel from the rest:
+
+```{r}
+world_data <- clean_data[-which(clean_data$country=='IL'),]
+Israel_data <- clean_data[which(clean_data$country=='IL'),]
+```
+
+Next, the sample count of each country is inspected using the following graph:
+
+```{r}
+library(ggplot2)
+count_country<-data.frame(table(world_data$country))
+country_freq_big <- count_country[count_country$Freq>1000,]
+ggplot(country_freq_big, aes(x=Var1, y=Freq)) + 
+  geom_bar(stat = "identity")+coord_flip()
+```
+
+The graph shows there is a great imbalance. US samples are much more than the rest of the countries, and therefore it seems that the data doesn't really represent the world population correctly.
+
+In order to compare Israel to a good representative data of the rest of the world, the data of the rest of the world should be taken according to the population size of each country. Thus, there is need to balance the data according to an additional data containing the current population number of each country.
+
+Therefore, a population dataset was downloaded from: <https://worldpopulationreview.com/countries>
+
+Based on the population dataset, the proportion of each country from the rest of the world was calculated. Thus, the same or similar proportion can be extracted from the samples of each country in the project's dataset.
+
+Checking the proportion size of each country can be done by checking if there is a linear fit between the real population counts and the datasets count. The deviation from real population size in presented by the graph bellow:
+
+```{r message=FALSE, warning=FALSE}
+# extract relative size of population:
+library("countrycode")
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+pop <- read.csv("csvData.csv")
+pop_size <- pop[c(2,3)]
+pop_size$iso3c   <- countrycode(pop$name, origin = "country.name", destination = "iso3c")
+count_country$iso3c   <- countrycode(count_country$Var1, origin = 'iso2c', destination = "iso3c")
+merge <- merge(count_country,pop_size,id="iso3c")
+merge$prop_pop <- merge$pop2021/sum(merge$pop2021)
+merge$prop_country <- merge$Freq/sum(merge$Freq)
+```
+
+```{r}
+#See imbalance:
+index_big <- which(count_country$Freq>6000)
+fit <- lm(prop_country[c(index_big)]~prop_pop[c(index_big)], data=merge)
+plot(merge$prop_pop[c(index_big)],merge$prop_country[c(index_big)], xlab = "Real Proportion",ylab = "Data Proportion")
+lines(merge$prop_pop[c(index_big)], fitted(fit), col="blue")
+```
+
+The fitted line shows the relationship between the proportion of each country in reality and in the dataset is far from being linear. Meaning, the data is not a good representation of the non-Israeli population.
+
+In order to fix the imbalance, a sample size from each country will be extracted according to its proportion in world population, matched to the desired overall sample size.
+
+Due to the great imbalance, it is clear that there is need to take a much smaller overall sample size in order to receive a good linear fit to world country proportions. In addition, the sample size needs to be reduced due to memory size limits of my computer. Therefore, the chosen sample size was 6000 samples from the non-Israeli data.
+
+Extracting the possible proportional amount led to the following graph:
+
+```{r message=FALSE, warning=FALSE}
+size <- 6000
+merge$take <- round(size*merge$prop_pop)
+
+merge_clean <- merge[-which(is.na(merge$iso3c)),]
+take <- merge_clean[,c(2,8)]
+colnames(take) <- c("country","take")
+
+library(dplyr)
+set.seed(4)
+world_filtered <- data.frame()
+world_filtered_index <- data.frame()
+acctual_take <- c()
+for (i in c(1:nrow(take)))
+  {
+  
+  add <- data.frame(which(world_data$country==take$country[i]))
+  if (take$take[i]<=dim(add)[1]){
+    add <- sample_n(add,size=take$take[i],1)
+    }
+  if(dim(add)[1]!=0){
+  world_filtered_index <- rbind((world_filtered_index),(add))
+  }
+  acctual_take <- data.frame(rbind(acctual_take,dim(add)[1]))
+}
+
+world_filtered <- world_data[unlist(world_filtered_index),]
+#showing the graph with actual data taken:
+
+#plot(merge_clean$pop2021,acctual_take[,c(1)])
+#See imbalance:
+merge_clean$acctual_take <- acctual_take[,c(1)]
+index_big <- which(count_country$Freq>6000)
+fit <- lm(acctual_take~pop2021, data=merge_clean)
+plot(merge_clean$pop2021,acctual_take[,c(1)],xlab = "Real Proportion",ylab = "Data Proportion")
+lines(merge_clean$pop2021, fitted(fit), col="blue")
+```
+
+There is a good linear fit to population size! Now we have a good representation of the non-Israeli sample.
+
+Next, the features will be explored. In order to check the relationship between the variables, a correlation heatmap is created:
+
+```{r}
+#world data with personality features only:
+world_features <- world_filtered[,c(1:50)]
+Israel_features <- Israel_data[,c(1:50)]
+all_features <- rbind(world_features,Israel_features)
+
+
+#convert to numeric class:
+all_features[] <- lapply(all_features, function(x) {
+    as.numeric(as.character(x)) 
+})
+
+cormat <- round(cor(all_features),2)
+#head(cormat)
+
+library(reshape2)
+melted_cormat <- melt(cormat)
+#head(melted_cormat)
+
+library(ggplot2)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value))  +geom_tile()+theme(axis.text.x = element_text(angle = 90,size = 5),axis.text.y = element_text(size = 5))
+```
+
+We see that as expected there are five groups of variables that correlate with each other, corresponding to the 10 statements that reflect every trait. However, it seems that those groups contain some variables that have small negative correlations instead of positive (resembled by the dark-light patterns). This is due to the fact that some of the 10 statements for each trait are positive, meaning, some of the statements show a tendency towards the corresponding trait, and some are negative, meaning, show a tendency towers the opposite of the corresponding trait. In order to cause the variables to have a similar impact on their corresponding trait, I'll flip the scale of the negative statements. Meaning, each 1,2,4 and 5 ranking will be changed to 5,4,2,1, respectively.
+
+```{r}
+data_50 <- rbind(world_filtered,Israel_data)
+data_50[,c(1:50)] <- data.frame(apply(data_50[,c(1:50)],2,as.numeric,na.rm=1))
+
+pos_questions = c( 
+  # pozitif sorular: karakter özelliğine + etki eder
+    'EXT1','EXT3','EX/T5','EXT7','EXT9',                       # 5 Dışadönüklük
+    'EST1','EST3','EST5','EST6','EST7','EST8','EST9','EST10', # 8 Nevrotiklik
+    'AGR2','AGR4','AGR6','AGR8','AGR9','AGR10',               # 6 Uyumluluk
+    'CSN1','CSN3','CSN5','CSN7','CSN9','CSN10',               # 6 Sorumluluk
+    'OPN1','OPN3','OPN5','OPN7','OPN8','OPN9','OPN10'        # 7 Deneyime Açıklık
+)
+
+neg_questions = c( # negatif sorular: karakter özelliğine - etki eder
+    'EXT2','EXT4','EXT6','EXT8','EXT10', # 5 Dışadönüklük
+    'EST2','EST4',                       # 2 Nevrotiklik
+    'AGR1','AGR3','AGR5','AGR7',         # 4 Uyumluluk
+    'CSN2','CSN4','CSN6','CSN8',         # 4 Sorumluluk
+    'OPN2','OPN4','OPN6'                # 3 Deneyime Açıklık
+)
+
+changed_data_50 <- data_50
+changed_data_50[,neg_questions] <- apply(data_50[,neg_questions],2, function(x) {ifelse(x==1,5,{ifelse(x==5,1,x)})})
+changed_data_50[,neg_questions] <- apply(changed_data_50[,neg_questions],2, function(x) {ifelse(x==2,4,{ifelse(x==4,2,x)})})
+```
+
+Now, I'll present again the correlation heatmap:
+
+```{r}
+features_50 <- changed_data_50[,c(1:50)]
+cormat <- round(cor(features_50),2)
+#head(cormat)
+
+library(reshape2)
+melted_cormat <- melt(cormat)
+#head(melted_cormat)
+
+library(ggplot2)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile()+theme(axis.text.x = element_text(angle = 90,size = 5),axis.text.y = element_text(size = 5))
+```
+
+Now, we see clear five groups of all the 10 statements corresponding to each trait. Thanks to flipping the negative statement values, it is more vivid how each statement contributes to the trait it belongs to.
+
+Next, I would like to inspect each of the 5 traits directly. Since the ranking of the statement shows how strong each trait is, summing up the ranking of each ten statements will result in five columns that resemble well the degree of each trait.
+
+creating the traits:
+
+```{r}
+personality_traits <- c("EXT", "AGR", "CSN", "EST", "OPN")
+
+changed_data_50$EXT <- apply(changed_data_50[,paste0('EXT',c(1:10))],1,sum,na.rm=0)
+changed_data_50$AGR <- apply(features_50[,paste0('AGR',c(1:10))],1,sum,na.rm=0)
+changed_data_50$CSN <- apply(features_50[,paste0('CSN',c(1:10))],1,sum,na.rm=0)
+changed_data_50$EST <- apply(features_50[,paste0('EST',c(1:10))],1,sum,na.rm=0)
+changed_data_50$OPN <- apply(features_50[,paste0('OPN',c(1:10))],1,sum,na.rm=0)
+
+changed_data_50[,c(53:57)] <- data.frame(apply(changed_data_50[,c(53:57)],2,as.numeric,na.rm=1))
+
+traits_50 <-changed_data_50[,c(51,53:57)]
+#trait_labels = c('Extroversion', 'Neuroticism', 'Agreeableness', 'Conscientiousness', 'Openness')
+```
+
+Next, lets exhibit the distribution of each trait and compare them to each other by the following violin plot:
+
+```{r message=FALSE, warning=FALSE}
+traits_for_plot_all <- melt(traits_50[,c(2:6)])
+ggplot(traits_for_plot_all, aes(x=variable, y=value)) +
+  geom_violin(aes(fill = variable), trim = FALSE) + 
+  geom_boxplot(width = 0.2)+
+  theme(legend.position = "none")
+```
+
+All traits show a good normal distribution, which is good to know for further statistical tests. Moreover, it seems that the traits agreeableness and openness show greater values than the rest. Thus, may imply that generally those are the more dominant traits of human being.
+
+Based on the five columns, resembling the big five traits, I would like to inspect the difference in traits between Israelis and non-Israelis.
+
+In order to do so i'll first divide the data to Israelis and non-Israelis and label them respectively:
+
+```{r}
+traits_50_labeled <- traits_50
+traits_50_labeled$country <- as.factor(ifelse(traits_50_labeled$country=='IL',1,0))
+```
+
+Now it's possible to perform the comparison for each trait using boxplots:
+
+```{r}
+traits_for_plot <- melt(traits_50_labeled,id=c("country"))
+ggplot(traits_for_plot, aes(x=variable, y=value, fill=country)) +
+  geom_boxplot(outlier.shape = NA,coef = 500)+facet_wrap(~variable, scales = "free")
+```
+
+It seems that Israelis tend to have a stronger trait of openness, slightly lower traits of conscientiousness and neuroticism and slightly higher extroversion. I'll check the significance of those differences using a t-test, which is a valid test in this case due to the normalitiy of the traits and the large sample size. The following graph shows the p_value results of each trait:
+
+```{r}
+world_traits <- traits_50[-which(traits_50$country=='IL'),][,c(2:6)]
+Israel_traits <- traits_50[which(traits_50$country=='IL'),][,c(2:6)]
+
+world_traits2 <- data.frame(unlist(sapply(1:ncol(world_traits), function(i) t.test(world_traits[,i],Israel_traits[,i])[c("p.value")])))
+world_traits2$traits <- personality_traits 
+colnames(world_traits2) <- c("difference_p_val", "traits")
+world_traits2$difference_p_val_round <- ifelse(world_traits2$difference_p_val<0.001,format(world_traits2$difference_p_val,scientific = TRUE), round(world_traits2$difference_p_val,3))
+
+options("scipen"=100, "digits"=4)
+ggplot(data=world_traits2, aes(x=traits, y=difference_p_val)) +
+  geom_bar(stat="identity", fill="steelblue")+
+  geom_text(aes(label=difference_p_val_round), vjust=-0.3, size=3.5)+
+  theme_minimal()+ geom_hline(yintercept=0.05, linetype="dashed", color = "red", size=1)+ggtitle("Israel-World personality difference") +
+  xlab("Personality traits") + ylab("P_value")
+```
+
+We can see that the differences regarding the traits neuroticism, extroversion and openness are significant (p-value less than 0.05). In particularly, the openess trait, which exhibited a very low p_value.
+
+We can visualize the effect of the traits on identifying an Israeli using the featureplot function:
+
+```{r}
+require(caret)
+featurePlot(x=traits_50_labeled[,c(2:6)],y=as.factor(traits_50_labeled$country),plot="density",scales=list(x=list(relation="free"),y=list(relation="free")),adjust=1.5,pch="|")
+```
+
+Here it seems that the traits don't differentiate well between Israelis and non-Israelis. However, the openness values do seem skewed slightly, which strengthen the significant difference we found before regarding openness.
+
+# Inference
+
+There are several options for fitting a model to this case. Organizing the data well, understanding the conditions of the data and the aim may lead to the optimal fitting model. The aim of the project is to check the validity of recognizing Israelis by their personality traits, therefore creating a binary classification model may help with that. Furthermore, we would like the model to more than just predict who is Israeli, but also explain the role of each trait in the prediction. Thus, a regression model may help with that. Thus, to fulfill both needs, a logistic regression, which is suitable for binary classification, may be optimal.
+
+Regarding our predictors, our variables are likert scales, meaning, they contain integers from 1-5. It is important to note that those are considered ordinal variables. Ordinal variables are variables that have two or more categories and the categories can also be ordered or ranked. Ordinal variables are usually treated as factorial and in some models need spatial adjustments, like creating dummy variables. However, likert scales could sometimes have justifications for using them as continues variables. It depends in the certain case and how their used. In this project I am using the predictors as continues variables, and I will justify along the way.
+
+First, the data with the 50 variables needs to be prepared and labeled:
+
+```{r}
+data_50_labeled <- data_50[,c(1:51)]
+data_50_labeled$country <- as.factor(ifelse(data_50_labeled$country=='IL',1,0))
+```
+
+Next, before building the model it is important to note the imbalance of the data:
+
+```{r}
+count_data <- data.frame(table(traits_50_labeled$country))
+count_data <- data.frame(count_data$Freq)
+count_data <- cbind(c("World","Israel"),count_data)
+colnames(count_data) <- c("Var","Freq")
+
+options("scipen"=100, "digits"=4)
+ggplot(data=count_data, aes(x=Var, y=Freq)) +
+  geom_bar(stat="identity", fill="steelblue")+
+  geom_text(aes(label=Freq), vjust=-0.3, size=3.5)+
+  theme_minimal()+ggtitle("Israel Vs World") +
+  xlab("") + ylab("#samples")
+```
+
+With imbalanced data sets, an algorithm doesn't receive the necessary information about the minority class to make an accurate prediction. Hence, it is desirable to use ML algorithms with balanced data sets. There are few try methods for doing so. The methods are widely known as 'Sampling Methods'. Generally, these methods aim to modify an imbalanced data into balanced distributions using some mechanism. The modification occurs by altering the size of original data set and providing the same proportion of balance. I will use several balancing methods and compare them to each other.
+
+1.  The first balancing method: Undersampling. This method works with the majority class. It reduces the number of observations from majority class to make the data set balanced. This method is best to use when the data set is huge and reducing the number of training samples helps to improve run time and storage troubles.
+
+```{r}
+library(ROSE)
+data_balanced_under <- ovun.sample(country ~ ., data = data_50_labeled, method = "under", N = nrow(Israel_data)*2, seed = 1)$data
+table(data_balanced_under$country)
+```
+
+The drawback of this method is that removing observations may cause the training data to lose important information pertaining to majority class.
+
+2.  Similarly, we'll use the oversampling techniques. This method works with the minority class. It replicates the observations from minority class to balance the data.
+
+An advantage of using this method is that it leads to no information loss. The disadvantage of using this method is that, since oversampling simply adds replicated observations in the original dataset, it ends up adding multiple observations of several types, thus leading to overfitting.
+
+```{r}
+data_balanced_over <- ovun.sample(country ~ ., data = data_50_labeled, N = (nrow(world_filtered)*2),seed=2)$data
+table(data_balanced_over$country)
+```
+
+Let's do both undersampling and oversampling on this imbalanced data. In this case, the minority class is oversampled with replacement and majority class is undersampled without replacement.
+
+```{r}
+data_balanced_both <- ovun.sample(country ~ ., data = data_50_labeled, method = "both", p=0.5,N=nrow(data_50_labeled), seed = 1)$data
+table(data_balanced_both$country)
+```
+
+The data generated from oversampling have expected amount of repeated observations. Data generated from undersampling is deprived of important information from the original data. This leads to inaccuracies in the resulting performance. To encounter these issues, ROSE helps us to generate data synthetically as well. The data generated using ROSE is considered to provide better estimate of original data.
+
+```{r}
+data.rose <- ROSE(country ~ ., data = data_50_labeled, seed = 1)$data
+table(data.rose$country)
+```
+
+Now, we've balanced the dataset using 4 techniques. Let's compute a model using each data and evaluate its accuracy.
+
+I will start by using the simplest model. This model is based on using all 50 variables, considered as numeric, in an additive manner. The rationale for considering them as continues centers on the fact that Likert, or ordinal variables with five or more categories can often be used as continuous without any harm to the analysis you plan to use them in (Johnson & Creech, 1983; Norman, 2010; Sullivan & Artino, 2013; Zumbo & Zimmerman, 1993). In cases like this, researchers usually refer to the variable as an "ordinal approximation of a continuous variable". The advantage of this approach is the fact that it is simple because it doesn't require the formation of too many dummy variables as required for ordinal data, and it is based on enough variables to be able to result in a good fit. However, there might be an issue in using all the 50 variables due to the correlation we exhibited above between each ten statements.
+
+First, I'll make sure the variables are considered continues:
+
+```{r}
+is.numeric(data_50_labeled$EXT1)
+```
+
+Next stage- splitting to train and test, for the four methods of data balancing:
+
+```{r}
+#Loading caret library
+require(caret)
+
+#oversampling data:
+data_50_labeled_index <- sample(1:nrow(data_balanced_over))
+shuffled_data <- data_balanced_over[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+train_over <- shuffled_data[index, ]
+test_over <- shuffled_data[-index, ]
+
+#undersampling data:
+data_50_labeled_index <- sample(1:nrow(data_balanced_under))
+shuffled_data <- data_balanced_under[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+train_under <- shuffled_data[index, ]
+test_under <- shuffled_data[-index, ]
+#table(train_under$country)
+
+#both:
+data_50_labeled_index <- sample(1:nrow(data_balanced_both))
+shuffled_data <- data_balanced_both[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+train_both <- shuffled_data[index, ]
+test_both <- shuffled_data[-index, ]
+#table(train_both$country)
+
+#ROSE sampling data:
+data_50_labeled_index <- sample(1:nrow(data.rose))
+shuffled_data <- data.rose[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+train_rose <- shuffled_data[index, ]
+test_rose <- shuffled_data[-index, ]
+#table(train_rose$country)
+```
+
+And then, building the logistic regression model for the five different datasets:
+
+```{r}
+# Training the model
+#logistic_model_noBalance <- glm(country ~ ., family = binomial(), train)
+logistic_model_over <- glm(country ~ ., family = binomial(), train_over)
+logistic_model_under <- glm(country ~ ., family = binomial(), train_under)
+logistic_model_both <- glm(country ~ ., family = binomial(), train_both)
+logistic_model_rose <- glm(country ~ ., family = binomial(), train_rose)
+# Checking the model
+#summary(logistic_model_noBalance)
+```
+
+I'll evaluate the models using the 5-fold cross-validated misclassification rate:
+
+```{r message=FALSE, warning=FALSE}
+library(boot)
+set.seed(4)
+#noBalance_MCR <- cv.glm(train,logistic_model_noBalance,K=5)$delta[1]
+over_MCR <- cv.glm(train_over,logistic_model_over,K=5)$delta[1]
+under_MCR <- cv.glm(train_under,logistic_model_under,K=5)$delta[1]
+both_MCR <- cv.glm(train_both,logistic_model_both,K=5)$delta[1]
+rose_MCR <- cv.glm(train_rose,logistic_model_rose,K=5)$delta[1]
+
+MCR <- data.frame(
+#noBalance_MCR,
+  over_MCR,under_MCR,both_MCR,rose_MCR)
+colnames(MCR) <- c("over","under","both","rose")
+MCR <- round(as.data.frame(t(as.matrix(MCR))),4)
+#library(lemon)
+knit_print.data.frame <- MCR
+MCR
+```
+
+We see that the error is similar for all methods, however the lowest for the oversampled data.
+
+Lets inspect the oversampled model due to its better results:
+
+```{r}
+summary(logistic_model_over)
+```
+
+It seems that there are some variables that show significance. However, it is very hard to conclude something from this model. Hence, I will try to reduce the number of coefficients by stepwise selection (forward, backward, both) using the **stepAIC( )** function from the **MASS** package. **stepAIC( )** performs stepwise model selection by exact AIC.
+
+According to that the important variables are:
+
+```{r include=FALSE}
+library(MASS)
+invisible(
+step <- stepAIC(logistic_model_over, direction="both",print=FALSE))
+#step$coefficients # display results
+#summary(step)
+
+```
+
+```{r}
+step$coefficients
+```
+
+We are left with 25 important variables. The misclassification rate is now:
+
+```{r}
+cv.glm(train_over,step,K=5)$delta[1]
+```
+
+The accuracy is slightly better, which means it is o.k we removed some variables.
+
+An additional model I would like to try is a more easy to explain model. This model is based on the 5 trait columns, which were calculated by summing the values of the ten variables that correspond to one trait. Despite the fact it will significantly reduce the number of variables used, it may make the relationship between each trait and the label more understandable. This time it will again be justified to use the variables as numeric. why? Because the five trait coulmnes, calculated by summing each 10 corresponding statements, results in a number of categories much higher than the ordinal Likert scales they're calculated from, which results in an approximately continuous variable. This is a common approach among researches who use surveys. Using the five traits as predictors has the adventages of creating an easy to explain model. However as mentioned, it might be in the cost of the accuracy of the model due to the very small number of predictors.
+
+Make sure variables are numeric:
+
+```{r}
+is.numeric(traits_50_labeled$EXT)
+```
+
+Again i will use the five different datasets discussed above:
+
+```{r}
+five_balanced_under <- ovun.sample(country ~ ., data = traits_50_labeled, method = "under", N = nrow(Israel_data)*2, seed = 1)$data
+#table(data_balanced_under$country)
+five_balanced_over <- ovun.sample(country ~ ., data = traits_50_labeled, N = (nrow(world_filtered)*2),seed=2)$data
+#table(data_balanced_over$country)
+five_balanced_both <- ovun.sample(country ~ ., data = traits_50_labeled, method = "both", p=0.5,N=nrow(data_50_labeled), seed = 1)$data
+#table(data_balanced_both$country)
+five.rose <- ROSE(country ~ ., data = traits_50_labeled, seed = 1)$data
+#table(data.rose$country)
+```
+
+Next stage: splitting to train and test, for the four methods of data balancing+the original inbalaced data
+
+```{r}
+#Loading caret library
+#require(caret)
+#original data:
+
+#data_50_labeled_index <- sample(1:nrow(traits_50_labeled))
+#shuffled_data <- data_50_labeled[data_50_labeled_index, ]
+#index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+#five_train <- shuffled_data[index, ]
+#five_test <- shuffled_data[-index, ]
+
+#oversampling data:
+data_50_labeled_index <- sample(1:nrow(five_balanced_over))
+shuffled_data <- five_balanced_over[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+five_train_over <- shuffled_data[index, ]
+five_test_over <- shuffled_data[-index, ]
+
+#undersampling data:
+data_50_labeled_index <- sample(1:nrow(five_balanced_under))
+shuffled_data <- five_balanced_under[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+five_train_under <- shuffled_data[index, ]
+five_test_under <- shuffled_data[-index, ]
+#table(train_under$country)
+
+#both:
+data_50_labeled_index <- sample(1:nrow(five_balanced_both))
+shuffled_data <- five_balanced_both[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+five_train_both <- shuffled_data[index, ]
+five_test_both <- shuffled_data[-index, ]
+#table(train_both$country)
+
+#ROSE sampling data:
+data_50_labeled_index <- sample(1:nrow(five.rose))
+shuffled_data <- five.rose[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+five_train_rose <- shuffled_data[index, ]
+five_test_rose <- shuffled_data[-index, ]
+#table(train_rose$country)
+```
+
+And then, building the logistic regression model for the five different datasets:
+
+```{r}
+# Training the model
+#logistic_five_noBalance <- glm(country ~ ., family = binomial(), five_train)
+logistic_five_over <- glm(country ~ ., family = binomial(), five_train_over)
+logistic_five_under <- glm(country ~ ., family = binomial(), five_train_under)
+logistic_five_both <- glm(country ~ ., family = binomial(), five_train_both)
+logistic_five_rose <- glm(country ~ ., family = binomial(), five_train_rose)
+# Checking the model
+#summary(logistic_model_noBalance)
+
+```
+
+I'll evaluate the models using the 5-fold cross-validated misclassification rate:
+
+```{r}
+library(boot)
+set.seed(4)
+#five_noBalance_MCR <- cv.glm(train,logistic_five_noBalance,K=5)$delta[1]
+#mean(ifelse(predict(logistic_model_noBalance)>0,1,0)!=train$country)
+five_over_MCR <- cv.glm(five_train_over,logistic_five_over,K=5)$delta[1]
+five_under_MCR <- cv.glm(five_train_under,logistic_five_under,K=5)$delta[1]
+five_both_MCR <- cv.glm(five_train_both,logistic_five_both,K=5)$delta[1]
+five_rose_MCR <- cv.glm(five_train_rose,logistic_five_rose,K=5)$delta[1]
+
+five_MCR <- data.frame(
+  #five_noBalance_MCR,
+  five_over_MCR,five_under_MCR,five_both_MCR,five_rose_MCR)
+colnames(five_MCR) <- c("over","under","both","rose")
+five_MCR <- round(as.data.frame(t(as.matrix(five_MCR))),4)
+#library(lemon)
+knit_print.data.frame <- five_MCR
+five_MCR
+```
+
+This time the misclassification rates are higher, showing not a low performance, as expected, due to the use of a much smaller model. Also, the undersampling method seemed to give this time the better results.
+
+Lets inspect the undersampled model:
+
+```{r}
+summary(logistic_five_under)
+```
+
+Despite the low accuracy of the model it is interesting to see again the significance of the OPN, EST and CSN traits.
+
+To build a better model I will try to divide the traits to half- each trait can be divided to the statements that strengthen that trait and the statements that weakens that traits. Therefore, instead of having five variables we will have ten:
+
+```{r}
+#features_50 <- all_features
+pos_questions = c( 
+  # pozitif sorular: karakter özelliğine + etki eder
+    'EXT1','EXT3','EXT5','EXT7','EXT9',                       # 5 Dışadönüklük
+    'EST1','EST3','EST5','EST6','EST7','EST8','EST9','EST10', # 8 Nevrotiklik
+    'AGR2','AGR4','AGR6','AGR8','AGR9','AGR10',               # 6 Uyumluluk
+    'CSN1','CSN3','CSN5','CSN7','CSN9','CSN10',               # 6 Sorumluluk
+    'OPN1','OPN3','OPN5','OPN7','OPN8','OPN9','OPN10'        # 7 Deneyime Açıklık
+)
+
+neg_questions = c( # negatif sorular: karakter özelliğine - etki eder
+    'EXT2','EXT4','EXT6','EXT8','EXT10', # 5 Dışadönüklük
+    'EST2','EST4',                       # 2 Nevrotiklik
+    'AGR1','AGR3','AGR5','AGR7',         # 4 Uyumluluk
+    'CSN2','CSN4','CSN6','CSN8',         # 4 Sorumluluk
+    'OPN2','OPN4','OPN6'                # 3 Deneyime Açıklık
+)
+
+personality_traits <- c("EXT", "AGR", "CSN", "EST", "OPN")
+
+data_10<-traits_50
+#traits_50 <- features_50
+data_10$EXT_pos <- apply(changed_data_50[,paste0('EXT',c(1,3,5,7,9))],1,sum,na.rm=0)
+data_10$AGR_pos <- apply(features_50[,paste0('AGR',c(2,4,6,8,9,10))],1,sum,na.rm=0)
+data_10$CSN_pos <- apply(features_50[,paste0('CSN',c(1,3,5,7,9,10))],1,sum,na.rm=0)
+data_10$EST_pos <- apply(features_50[,paste0('EST',c(1,3,5,6,7,8,9,10))],1,sum,na.rm=0)
+data_10$OPN_pos <- apply(features_50[,paste0('OPN',c(1,3,5,7,8,9,10))],1,sum,na.rm=0)
+
+data_10$EXT_neg <- apply(changed_data_50[,paste0('EXT',c(2,4,6,8,10))],1,sum,na.rm=0)
+data_10$AGR_neg <- apply(features_50[,paste0('AGR',c(1,3,5,7))],1,sum,na.rm=0)
+data_10$CSN_neg <- apply(features_50[,paste0('CSN',c(2,4,6,8))],1,sum,na.rm=0)
+data_10$EST_neg <- apply(features_50[,paste0('EST',c(2,4))],1,sum,na.rm=0)
+data_10$OPN_neg <- apply(features_50[,paste0('OPN',c(2,4,6))],1,sum,na.rm=0)
+
+#changed_data_50[,c(53:57)] <- data.frame(apply(changed_data_50[,c(53:57)],2,as.numeric,na.rm=1))
+
+data_10 <-data_10[,c(1,7:16)]
+data_10$country <- traits_50_labeled$country
+#trait_labels = c('Extroversion', 'Neuroticism', 'Agreeableness', 'Conscientiousness', 'Openness')
+```
+
+Make sure variables are numeric:
+
+```{r}
+is.numeric(data_10$EXT_pos)
+```
+
+Again I will use the five different datasets discussed above:
+
+```{r}
+ten_balanced_under <- ovun.sample(country ~ ., data = data_10, method = "under", N = nrow(Israel_data)*2, seed = 1)$data
+#table(data_balanced_under$country)
+ten_balanced_over <- ovun.sample(country ~ ., data = data_10, N = (nrow(world_filtered)*2),seed=2)$data
+#table(data_balanced_over$country)
+ten_balanced_both <- ovun.sample(country ~ ., data = data_10, method = "both", p=0.5,N=nrow(data_50_labeled), seed = 1)$data
+#table(data_balanced_both$country)
+ten.rose <- ROSE(country ~ ., data = data_10, seed = 1)$data
+#table(data.rose$country)
+```
+
+Next stage- splitting to train and test, for the four methods of data balancing+the original inbalaced data:
+
+```{r}
+#Loading caret library
+#require(caret)
+# Splitting the data into train and test
+#original data:
+
+#data_50_labeled_index <- sample(1:nrow(traits_50_labeled))
+#shuffled_data <- data_50_labeled[data_50_labeled_index, ]
+#index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+#five_train <- shuffled_data[index, ]
+#five_test <- shuffled_data[-index, ]
+
+#oversampling data:
+data_50_labeled_index <- sample(1:nrow(ten_balanced_over))
+shuffled_data <- ten_balanced_over[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+ten_train_over <- shuffled_data[index, ]
+ten_test_over <- shuffled_data[-index, ]
+
+#undersampling data:
+data_50_labeled_index <- sample(1:nrow(ten_balanced_under))
+shuffled_data <- ten_balanced_under[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+ten_train_under <- shuffled_data[index, ]
+ten_test_under <- shuffled_data[-index, ]
+#table(train_under$country)
+
+#both:
+data_50_labeled_index <- sample(1:nrow(ten_balanced_both))
+shuffled_data <- ten_balanced_both[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+ten_train_both <- shuffled_data[index, ]
+ten_test_both <- shuffled_data[-index, ]
+#table(train_both$country)
+
+#ROSE sampling data:
+data_50_labeled_index <- sample(1:nrow(ten.rose))
+shuffled_data <- ten.rose[data_50_labeled_index,]
+index <- createDataPartition(shuffled_data$country, p = .80, list = FALSE)
+ten_train_rose <- shuffled_data[index, ]
+ten_test_rose <- shuffled_data[-index, ]
+#table(train_rose$country)
+```
+
+And then, building the logistic regression model for the five different datasets:
+
+```{r}
+# Training the model
+#logistic_five_noBalance <- glm(country ~ ., family = binomial(), five_train)
+logistic_ten_over <- glm(country ~ ., family = binomial(), ten_train_over)
+logistic_ten_under <- glm(country ~ ., family = binomial(), ten_train_under)
+logistic_ten_both <- glm(country ~ ., family = binomial(), ten_train_both)
+logistic_ten_rose <- glm(country ~ ., family = binomial(), ten_train_rose)
+# Checking the model
+#summary(logistic_model_noBalance)
+```
+
+I'll evaluate the models using the 5-fold cross-validated misclassification rate:
+
+```{r}
+library(boot)
+set.seed(4)
+#five_noBalance_MCR <- cv.glm(train,logistic_five_noBalance,K=5)$delta[1]
+#mean(ifelse(predict(logistic_model_noBalance)>0,1,0)!=train$country)
+ten_over_MCR <- cv.glm(ten_train_over,logistic_ten_over,K=5)$delta[1]
+ten_under_MCR <- cv.glm(ten_train_under,logistic_ten_under,K=5)$delta[1]
+ten_both_MCR <- cv.glm(ten_train_both,logistic_ten_both,K=5)$delta[1]
+ten_rose_MCR <- cv.glm(ten_train_rose,logistic_ten_rose,K=5)$delta[1]
+
+ten_MCR <- data.frame(
+  #five_noBalance_MCR,
+  ten_over_MCR,ten_under_MCR,ten_both_MCR,ten_rose_MCR)
+colnames(ten_MCR) <- c("over","under","both","rose")
+ten_MCR <- round(as.data.frame(t(as.matrix(ten_MCR))),4)
+#library(lemon)
+knit_print.data.frame <- ten_MCR
+ten_MCR
+```
+
+This time the misclassification rates are lower, showing a better fitting, as expected. Also, again we see that the undersampling method seemed to give the better results.
+
+Let's test the three models that showed the best result from each of the three methods and compare the results:
+
+```{r}
+#make predictions on unseen data
+pred_over <- predict(logistic_model_over, newdata = test_over,type="response")
+pred_five_under <- predict(logistic_five_under, newdata = five_test_under)
+pred_ten_under <- predict(logistic_ten_under, newdata = ten_test_under)
+
+test_over$pred_over <- ifelse(pred_over >= 0.5, "1", "0")
+five_test_under$pred_five_under <- ifelse(pred_five_under >= 0.5, "1", "0")
+ten_test_under$pred_ten_under <- ifelse(pred_ten_under >= 0.5, "1", "0")
+#It’s time to evaluate the accuracy of respective predictions. Using inbuilt function roc.curve allows us to capture roc metric.
+```
+
+```{r message=FALSE, warning=FALSE}
+#AUC over
+roc.curve(test_over$country, test_over$pred_over, col="red")
+#AUC under_five
+roc.curve(five_test_under$country, five_test_under$pred_five_under,add.roc = TRUE, col="blue")
+#AUC Under_ten
+roc.curve(ten_test_under$country, ten_test_under$pred_ten_under,add.roc = TRUE, col="green")
+legend("bottomright", c("50 features-oversampling", "5 features-undersampling","10 features-undersampling"), lty=1, 
+    col = c("red", "blue","green"), bty="n")
+```
+
+Overall it seems that the accuracy of the model is pretty low. The best accuracy was received from the 50 feature model. It is no surprise since it used more information for fitting. However, because we search for a model that is not only meant for predicting, but also for explaining, we will choose the smaller model which grants a smaller accuracy but yet a similar one. That is the model using the 10 features.
+
+Let's inspect the model more closely:
+
+```{r}
+summary(logistic_ten_under)
+```
+It seems that the traits: EXT_pos, AGR_pos, CSN_pos, OPN_pos, EXT_neg, AGR_neg are statistically significant predictors (p < 0.05). OPN_pos has the lowest p-value, with a positive coefficient, suggesting this predictor has a strong association with differentiating between Israelis and non-Israelis and that Israelis tend to have more open personalities, as suggested before. 
+
+Next, we want to explore the importance of each environmental variable to predict the species occurrence.
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#install.packages("dominanceanalysis")
+library(dominanceanalysis)
+names <- da.glm.fit()("names")
+dapres<-dominanceAnalysis(logistic_ten_under)
+plot(dapres, which.graph ="general",fit.function = "r2.m",size=0.5)
+```
+
+
+We see that the traits openness, Extroversion and Agreeableness have the strongest impact. According to the coefficient values presented before it can be assumed that Israelis have unique openness, low agreeableness and low Extroversion- meaning dominant hostile and introvert traits. The openness and Extroversion results correspond with the analysis performed above therefore their reliability is good.
+
+# Conclusion
+
+In summary, the given analysis seemed to suggest that Israelis tend to be uniquely open to experiences than the rest of the world. Openness is a characteristic that includes imagination, insight and eagerness to learn and experience new things. This trait may look suitable for Israelis since Israel is known to be a startup nation and to contribute to the world in a wide range of fields from science to religion. The results also suggested that Israelis seemed to be more introverted than the rest of the world, which corresponds with the known statements about Jews being 'רחמנים ביישנים וגומלי חסדים'.
+
+However, the given model showed a relatively low accuracy. This finding may strengthen the belief that Israelis don't have special traits that significantly differentiate them from the rest of the world. This may also show that either Israelis are not that different, perhaps because they are a collection of cultures that were grouped together from different areas in the world, therefore actually should be similar to the rest of the world. Or perhaps, as mentions, it may show that personalities are not definable and each human being is unique enough to make it difficult to group people in a large scale.
+
+Having said so, the following project can be further improved and with enough dedication it might still lead for good predictions. First, the project focused on one type of model only- logistic regression, while there are numerous more binary classification options that can be used. Moreover, the project was based on the big five personality test that contained only 50 answers which reflected only five traits. It reasonable that it would be hard to differentiate Israelis based on only five traits and 50 variables. A maybe better dataset would be a dataset based on the known Myers--Briggs Type Indicator which is an introspective self-report questionnaire indicating differing psychological preferences in how people perceive the world and make decisions. This test is longer and takes into account more aspects of one's personality.
