@@ -3,3 +3,4 @@ Do Israelis have significant personality traits that differentiates them from th
 The project was written in the R language, using advanced statistical and machine learning methods.
 - The R file is named: 'Tamar_Aranoff-Project'
 - The html version is also under the name: 'Tamar_Aranoff-Project'
+- The project presentation is under the name: 'Project_final_israeli'
